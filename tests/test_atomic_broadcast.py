@@ -1,4 +1,8 @@
+import sys
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from AtomicBroadcast import AtomicBroadcast
 from SocketNode import SocketNode
@@ -9,9 +13,6 @@ NODES = {
     1: ("127.0.0.1", 5001),
     2: ("127.0.0.1", 5002),
 }
-
-LEADER_ID = 0
-
 
 def main():
     atomic_broadcasts = {}
@@ -25,9 +26,7 @@ def main():
     for node_id in NODES:
         atomic = AtomicBroadcast(
             id=node_id,
-            nodes=list(NODES.keys()),
-            is_leader=(node_id == LEADER_ID),
-            leader_id=LEADER_ID
+            nodes=list(NODES.keys())
         )
 
         socket_node = SocketNode(node_id, NODES, atomic)
