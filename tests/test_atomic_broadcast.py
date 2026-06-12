@@ -8,28 +8,25 @@ from AtomicBroadcast import AtomicBroadcast
 from SocketNode import SocketNode
 
 
-NODES = {
+SOCKET_NODES = {
     0: ("127.0.0.1", 5000),
     1: ("127.0.0.1", 5001),
     2: ("127.0.0.1", 5002),
 }
 
+
 def main():
     atomic_broadcasts = {}
     socket_nodes = {}
-    delivered_messages = {
-        0: [],
-        1: [],
-        2: [],
-    }
+    delivered_messages = {node_id: [] for node_id in SOCKET_NODES}
 
-    for node_id in NODES:
+    for node_id in SOCKET_NODES:
         atomic = AtomicBroadcast(
             id=node_id,
-            nodes=list(NODES.keys())
+            nodes=list(SOCKET_NODES.keys())
         )
 
-        socket_node = SocketNode(node_id, NODES, atomic)
+        socket_node = SocketNode(node_id, SOCKET_NODES, atomic)
 
         atomic.register_send_callback(socket_node.send)
         atomic.register_deliver_callback(
@@ -39,55 +36,39 @@ def main():
         atomic_broadcasts[node_id] = atomic
         socket_nodes[node_id] = socket_node
 
-    for socket_node in socket_nodes.values():
-        socket_node.start()
+    messages = [
+        (1, {"op": "bid", "user": "Alice", "value": 1000}),
+        (2, {"op": "bid", "user": "Bob", "value": 1200}),
+        (0, {"op": "bid", "user": "Carol", "value": 1100}),
+    ]
 
-    time.sleep(1)
+    try:
+        for socket_node in socket_nodes.values():
+            socket_node.start()
 
-    print("\nEnviando lances do leilão...\n")
+        time.sleep(1)
 
-    atomic_broadcasts[1].broadcast({
-        "op": "bid",
-        "user": "Alice",
-        "value": 1000
-    })
+        print("\nEnviando lances do leilão...\n")
+        for node_id, message in messages:
+            atomic_broadcasts[node_id].broadcast(message)
 
-    atomic_broadcasts[2].broadcast({
-        "op": "bid",
-        "user": "Bob",
-        "value": 1200
-    })
+        time.sleep(2)
 
-    atomic_broadcasts[0].broadcast({
-        "op": "bid",
-        "user": "Carol",
-        "value": 1100
-    })
+        print("\nLances entregues por cada node:\n")
+        for node_id in delivered_messages:
+            print(f"node {node_id}:")
+            for index, message in enumerate(delivered_messages[node_id]):
+                print(f"  {index}: {message}")
+            print()
 
-    time.sleep(2)
+        expected_order = delivered_messages[0]
+        for node_id in delivered_messages:
+            assert delivered_messages[node_id] == expected_order
 
-    print("\nLances entregues por cada node:\n")
-
-    for node_id in delivered_messages:
-        print(f"node {node_id}:")
-        for index, message in enumerate(delivered_messages[node_id]):
-            print(f"  {index}: {message}")
-        print()
-
-    first_order = delivered_messages[0]
-    same_order = True
-
-    for node_id in delivered_messages:
-        if delivered_messages[node_id] != first_order:
-            same_order = False
-
-    if same_order:
         print("OK: todos os nodes entregaram os lances na mesma ordem.")
-    else:
-        print("ERRO: os nodes entregaram lances em ordens diferentes.")
-
-    for socket_node in socket_nodes.values():
-        socket_node.stop()
+    finally:
+        for socket_node in socket_nodes.values():
+            socket_node.stop()
 
 
 if __name__ == "__main__":
