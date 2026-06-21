@@ -10,9 +10,13 @@ SocketNode
 
 A ideia mais importante é que cada parte tenha uma responsabilidade diferente.
 
-## 1. Aplicação final ou testes
+## 1. Aplicação final e testes
 
-A aplicação final é o sistema que usa o Atomic Broadcast. Neste repositório ainda não existe uma aplicação completa de leilão separada; os arquivos em `tests/` fazem esse papel de cliente do building block.
+A aplicação final é o sistema que usa o Atomic Broadcast. Neste repositório,
+ela está implementada em `LeilaoApp.py`, enquanto `auction_node.py` fornece a
+interface interativa para executar uma réplica do leilão em cada terminal.
+Os arquivos em `tests/` verificam tanto o building block quanto as regras do
+leilão.
 
 Por exemplo:
 
@@ -41,7 +45,8 @@ Exemplo de mensagem da aplicação:
     "op": "bid",
     "auction_id": "A1",
     "user": "Antonio",
-    "value": 150
+    "value": 150,
+    "origin_node": 0
 }
 ```
 
@@ -227,6 +232,15 @@ AtomicBroadcast.py
     ordena mensagens
     usa send_callback para enviar JSON
 
+LeilaoApp.py
+    mantém o estado replicado do leilão
+    publica lances e fechamento
+    aplica eventos entregues em ordem total
+
+auction_node.py
+    conecta LeilaoApp, AtomicBroadcast e SocketNode
+    oferece os comandos interativos bid, close, status, help e quit
+
 SocketNode.py
     implementa o send_callback
     recebe JSON pela rede
@@ -236,46 +250,45 @@ tests/test_atomic_broadcast.py
     monta três SocketNode reais em localhost
     verifica que todos entregam a mesma sequência
 
-tests/teste_carga_balanceada.py
+tests/test_mencius_carga_balanceada.py
     demonstra o caso ideal sem SKIP
 
-tests/teste_efeito_elastico.py
+tests/test_mencius_efeito_elastico.py
     demonstra rajada de um nó e SKIPs dos nós ociosos
 
-tests/test_mencius_skips.py
-    demonstra o mecanismo mínimo de SKIP
+tests/test_leilao_app.py
+    verifica as regras do leilão e a convergência das réplicas
 
 Makefile
-    executa os testes didáticos principais com make test-mencius
+    oferece atalhos para todos os testes
 ```
 
 ## Exemplo de conexão no código
 
 ```python
-auction = LeilaoApp()
-
 atomic = AtomicBroadcast(
     id=node_id,
     nodes=[0, 1, 2]
 )
 
 socket_node = SocketNode(node_id, nodes_config, atomic)
+auction = LeilaoApp(
+    node_id,
+    atomic,
+    auction_id="A1",
+    item="Notebook"
+)
 
 atomic.register_send_callback(socket_node.send)
-atomic.register_deliver_callback(auction.apply_operation)
-
 socket_node.start()
 ```
 
-Nesse exemplo:
+O construtor de `LeilaoApp` registra `auction.apply_event` como callback de
+entrega. Esse método é chamado quando uma mensagem já foi ordenada e pode ser
+aplicada ao estado replicado do leilão.
 
-```text
-auction.apply_operation
-```
-
-é chamado quando uma mensagem já foi ordenada e pode ser aplicada pela aplicação.
-
-Nos testes atuais, esse callback é substituído por uma função que salva a mensagem em uma lista:
+Nos testes do `AtomicBroadcast`, o callback pode ser uma função que salva a
+mensagem em uma lista:
 
 ```python
 atomic.register_deliver_callback(
@@ -336,12 +349,54 @@ make test-mencius
 Esse comando executa:
 
 ```text
-tests/teste_carga_balanceada.py
-tests/teste_efeito_elastico.py
+tests/test_mencius_carga_balanceada.py
+tests/test_mencius_efeito_elastico.py
+```
+
+Todos os testes rodam com:
+
+```bash
+make test-all
 ```
 
 O teste com sockets reais roda com:
 
 ```bash
-python3 -B tests/test_atomic_broadcast.py
+make test-socket
 ```
+
+O teste da aplicação de leilão em memória roda com:
+
+```bash
+make test-leilao
+```
+
+## Aplicação interativa
+
+Para executar três réplicas reais, abra três terminais e inicie todos os nós
+antes de enviar lances:
+
+```bash
+# terminal 1
+python3 -B auction_node.py 0
+
+# terminal 2
+python3 -B auction_node.py 1
+
+# terminal 3
+python3 -B auction_node.py 2
+```
+
+Os nós usam TCP em `127.0.0.1`, nas portas `5000`, `5001` e `5002`. Em qualquer
+terminal, estão disponíveis os comandos:
+
+```text
+bid <usuario> <valor>
+close
+status
+help
+quit
+```
+
+Como não existe retransmissão, mensagens enviadas enquanto uma réplica estiver
+desligada não são recuperadas quando ela iniciar.

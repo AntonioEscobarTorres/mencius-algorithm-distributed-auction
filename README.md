@@ -66,10 +66,19 @@ make test-leilao
 Executar a aplicação de leilão com três processos reais:
 
 ```bash
+# terminal 1
 python3 -B auction_node.py 0
+
+# terminal 2
 python3 -B auction_node.py 1
+
+# terminal 3
 python3 -B auction_node.py 2
 ```
+
+Inicie os três nós antes de enviar lances. Como esta implementação não possui
+retransmissão, mensagens enviadas enquanto algum nó estiver desligado não serão
+recuperadas depois.
 
 Em qualquer terminal, use comandos como:
 
@@ -78,6 +87,8 @@ bid Alice 1000
 bid Bob 1200
 status
 close
+help
+quit
 ```
 
 Executar testes individuais:
