@@ -3,16 +3,20 @@
 Este projeto pode ser organizado em três camadas principais:
 
 ```text
-Aplicação final
+Aplicação final / testes
 Atomic Broadcast
 SocketNode
 ```
 
 A ideia mais importante é que cada parte tenha uma responsabilidade diferente.
 
-## 1. Aplicação final
+## 1. Aplicação final e testes
 
-A aplicação final é o sistema que usa o Atomic Broadcast.
+A aplicação final é o sistema que usa o Atomic Broadcast. Neste repositório,
+ela está implementada em `LeilaoApp.py`, enquanto `auction_node.py` fornece a
+interface interativa para executar uma réplica do leilão em cada terminal.
+Os arquivos em `tests/` verificam tanto o building block quanto as regras do
+leilão.
 
 Por exemplo:
 
@@ -41,7 +45,8 @@ Exemplo de mensagem da aplicação:
     "op": "bid",
     "auction_id": "A1",
     "user": "Antonio",
-    "value": 150
+    "value": 150,
+    "origin_node": 0
 }
 ```
 
@@ -63,8 +68,9 @@ Responsabilidades:
 
 ```text
 - receber broadcast(message)
-- se for líder, criar um seq_id
-- se não for líder, enviar request para o líder
+- escolher o próximo seq_id pertencente ao próprio nó
+- difundir a mensagem ordenada para todos
+- enviar SKIP para slots próprios que ficaram ociosos
 - receber mensagens JSON da rede
 - guardar mensagens fora de ordem em waiting_messages
 - entregar mensagens na ordem correta
@@ -73,46 +79,40 @@ Responsabilidades:
 Existem dois tipos de mensagem usados pelo Atomic Broadcast:
 
 ```text
-request
 deliver
+skip
 ```
 
-### request
+### Liderança rotativa
 
-Um `request` é um pedido enviado por um nó comum para o líder.
+O algoritmo usa a ideia do Mencius: não existe um líder único.
+Cada nó é líder de alguns IDs globais.
 
-Exemplo:
-
-```json
-{
-    "type": "request",
-    "sender_id": 2,
-    "data": {
-        "op": "bid",
-        "auction_id": "A1",
-        "user": "Bob",
-        "value": 200
-    }
-}
-```
-
-Significado:
+Com três nós:
 
 ```text
-Líder, quero enviar essa mensagem para todos.
-Coloque ela na ordem global.
+node 0: seq_id 0, 3, 6, 9...
+node 1: seq_id 1, 4, 7, 10...
+node 2: seq_id 2, 5, 8, 11...
 ```
+
+Quando um nó chama:
+
+```python
+atomic_broadcast.broadcast(message)
+```
+
+ele usa diretamente o próximo `seq_id` que pertence a ele e envia para todos.
+Cada nó decide seus próprios slots de forma independente.
 
 ### deliver
 
-Um `deliver` é uma mensagem que o líder já ordenou.
-
-Exemplo:
+Um `deliver` é uma mensagem que um nó já colocou no seu slot global.
 
 ```json
 {
     "type": "deliver",
-    "seq_id": 0,
+    "seq_id": 2,
     "data": {
         "op": "bid",
         "auction_id": "A1",
@@ -125,7 +125,28 @@ Exemplo:
 Significado:
 
 ```text
-Todos os processos devem entregar essa mensagem como a mensagem número 0.
+Todos os processos devem entregar essa mensagem na posição seq_id = 2.
+```
+
+### skip
+
+Um `skip` ocupa um slot vazio quando o dono daquele slot não tem mensagem de aplicação para enviar.
+Ele destrava a entrega, mas não é repassado para a aplicação.
+
+Exemplo:
+
+```json
+{
+    "type": "skip",
+    "seq_id": 0,
+    "sender_id": 0
+}
+```
+
+Significado:
+
+```text
+O slot 0 está vazio e pode ser pulado.
 ```
 
 O campo `seq_id` define a ordem global.
@@ -189,78 +210,99 @@ Exemplo: usuário faz um lance em um leilão.
 3. LeilaoApp chama:
    atomic_broadcast.broadcast(message)
 
-4. Se o nó não for líder:
-   AtomicBroadcast cria um request e manda para o líder
+4. AtomicBroadcast escolhe o próximo seq_id pertencente ao próprio nó
 
-5. SocketNode envia o request por socket
+5. SocketNode envia o deliver para todos os nós
 
-6. Líder recebe o request
+6. Cada nó recebe o deliver
 
-7. AtomicBroadcast do líder cria um seq_id
+7. Se existirem slots anteriores vazios pertencentes a um nó, esse nó envia skip
 
-8. Líder cria uma mensagem deliver
+8. AtomicBroadcast guarda mensagens fora de ordem até poder avançar
 
-9. SocketNode do líder envia o deliver para todos os nós
+9. AtomicBroadcast entrega as mensagens reais na ordem correta
 
-10. Cada nó recebe o deliver
-
-11. AtomicBroadcast entrega a mensagem na ordem correta
-
-12. LeilaoApp aplica o lance
+10. LeilaoApp aplica o lance
 ```
 
 ## Relação entre os arquivos
 
 ```text
-LeilaoApp.py
-    chama AtomicBroadcast.broadcast()
-    recebe mensagens entregues pelo AtomicBroadcast
-
 AtomicBroadcast.py
     ordena mensagens
     usa send_callback para enviar JSON
+
+LeilaoApp.py
+    mantém o estado replicado do leilão
+    publica lances e fechamento
+    aplica eventos entregues em ordem total
+
+auction_node.py
+    conecta LeilaoApp, AtomicBroadcast e SocketNode
+    oferece os comandos interativos bid, close, status, help e quit
 
 SocketNode.py
     implementa o send_callback
     recebe JSON pela rede
     chama AtomicBroadcast._on_receive_from_network()
+
+tests/test_atomic_broadcast.py
+    monta três SocketNode reais em localhost
+    verifica que todos entregam a mesma sequência
+
+tests/test_mencius_carga_balanceada.py
+    demonstra o caso ideal sem SKIP
+
+tests/test_mencius_efeito_elastico.py
+    demonstra rajada de um nó e SKIPs dos nós ociosos
+
+tests/test_leilao_app.py
+    verifica as regras do leilão e a convergência das réplicas
+
+Makefile
+    oferece atalhos para todos os testes
 ```
 
 ## Exemplo de conexão no código
 
 ```python
-auction = LeilaoApp()
-
 atomic = AtomicBroadcast(
     id=node_id,
-    nodes=[0, 1, 2],
-    is_leader=(node_id == 0),
-    leader_id=0
+    nodes=[0, 1, 2]
 )
 
 socket_node = SocketNode(node_id, nodes_config, atomic)
+auction = LeilaoApp(
+    node_id,
+    atomic,
+    auction_id="A1",
+    item="Notebook"
+)
 
 atomic.register_send_callback(socket_node.send)
-atomic.register_deliver_callback(auction.apply_operation)
-
 socket_node.start()
 ```
 
-Nesse exemplo:
+O construtor de `LeilaoApp` registra `auction.apply_event` como callback de
+entrega. Esse método é chamado quando uma mensagem já foi ordenada e pode ser
+aplicada ao estado replicado do leilão.
 
-```text
-auction.apply_operation
+Nos testes do `AtomicBroadcast`, o callback pode ser uma função que salva a
+mensagem em uma lista:
+
+```python
+atomic.register_deliver_callback(
+    lambda message, node_id=node_id: delivered_messages[node_id].append(message)
+)
 ```
-
-é chamado quando uma mensagem já foi ordenada e pode ser aplicada pela aplicação.
 
 ## Por que separar assim?
 
 Essa separação ajuda porque cada arquivo fica simples:
 
 ```text
-LeilaoApp.py
-    regra de negócio
+Aplicação final, por exemplo LeilaoApp
+    regra de negócio do domínio
 
 AtomicBroadcast.py
     algoritmo distribuído
@@ -295,3 +337,66 @@ node 2:
 ```
 
 Mesmo que as mensagens cheguem em ordens diferentes pela rede, a entrega final deve ser igual em todos os nós.
+
+## Como executar as demonstrações atuais
+
+Os testes didáticos principais rodam com:
+
+```bash
+make test-mencius
+```
+
+Esse comando executa:
+
+```text
+tests/test_mencius_carga_balanceada.py
+tests/test_mencius_efeito_elastico.py
+```
+
+Todos os testes rodam com:
+
+```bash
+make test-all
+```
+
+O teste com sockets reais roda com:
+
+```bash
+make test-socket
+```
+
+O teste da aplicação de leilão em memória roda com:
+
+```bash
+make test-leilao
+```
+
+## Aplicação interativa
+
+Para executar três réplicas reais, abra três terminais e inicie todos os nós
+antes de enviar lances:
+
+```bash
+# terminal 1
+python3 -B auction_node.py 0
+
+# terminal 2
+python3 -B auction_node.py 1
+
+# terminal 3
+python3 -B auction_node.py 2
+```
+
+Os nós usam TCP em `127.0.0.1`, nas portas `5000`, `5001` e `5002`. Em qualquer
+terminal, estão disponíveis os comandos:
+
+```text
+bid <usuario> <valor>
+close
+status
+help
+quit
+```
+
+Como não existe retransmissão, mensagens enviadas enquanto uma réplica estiver
+desligada não são recuperadas quando ela iniciar.
