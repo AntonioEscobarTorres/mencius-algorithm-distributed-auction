@@ -1,4 +1,4 @@
-.PHONY: test-all test-mencius test-socket test-leilao
+.PHONY: test-all test-mencius test-socket test-leilao test-concorrencia
 
 PYTHON ?= python3
 
@@ -13,3 +13,6 @@ test-socket:
 
 test-leilao:
 	$(PYTHON) -B tests/test_leilao_app.py
+
+test-concorrencia:
+	$(PYTHON) -B tests/test_concorrencia.py
