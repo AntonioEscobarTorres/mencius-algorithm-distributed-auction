@@ -71,6 +71,46 @@ make test-leilao        # regras e convergência do leilão
 make test-concorrencia  # lances concorrentes
 ```
 
+## Estrutura do projeto
+
+```text
+.
+├── auction_node.py
+├── LeilaoApp.py
+├── AtomicBroadcast.py
+├── SocketNode.py
+├── Makefile
+├── README.md
+└── tests/
+```
+
+### Arquivos principais
+
+- `auction_node.py`: ponto de entrada da aplicação. Configura os três nós,
+  conecta as camadas do sistema, inicia o servidor TCP e disponibiliza os
+  comandos interativos do leilão.
+
+- `LeilaoApp.py`: implementa as regras e mantém o estado local do leilão,
+  incluindo maior lance, vencedor, fechamento e histórico. Publica eventos pelo
+  Atomic Broadcast e aplica os eventos entregues em ordem total.
+
+- `AtomicBroadcast.py`: implementa o building block inspirado no Mencius.
+  Distribui os slots entre os nós, cria mensagens `deliver` e `skip`, armazena
+  mensagens fora de ordem e entrega os eventos à aplicação na ordem global.
+
+- `SocketNode.py`: implementa a camada de comunicação entre processos usando
+  sockets TCP. Envia mensagens JSON, aceita conexões e encaminha os pacotes
+  recebidos para o Atomic Broadcast.
+
+- `Makefile`: reúne atalhos para executar os testes e cenários de demonstração
+  do projeto.
+
+- `README.md`: contém a documentação, as instruções de execução, o modelo de
+  sistema, a arquitetura e as limitações da implementação.
+
+- `tests/`: contém os testes automatizados e os cenários de demonstração. Seus
+  arquivos não fazem parte da execução interativa da aplicação.
+
 ## Visão geral
 
 Este projeto implementa um leilão distribuído replicado sobre um building block
@@ -217,25 +257,6 @@ Publicação de um evento:
 
 ```python
 atomic.broadcast(event)
-```
-
-## Estrutura do projeto
-
-```text
-.
-├── AtomicBroadcast.py
-├── LeilaoApp.py
-├── SocketNode.py
-├── auction_node.py
-├── Makefile
-├── README.md
-└── tests
-    ├── support.py
-    ├── test_atomic_broadcast.py
-    ├── test_concorrencia.py
-    ├── test_leilao_app.py
-    ├── test_mencius_carga_balanceada.py
-    └── test_mencius_efeito_elastico.py
 ```
 
 ## Limitações
