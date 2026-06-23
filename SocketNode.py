@@ -15,12 +15,18 @@ class SocketNode:
 
     def start(self):
         """Inicia o servidor socket deste nó."""
-        self.running = True
-
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.server_socket.bind((self.host, self.port))
-        self.server_socket.listen()
+
+        try:
+            self.server_socket.bind((self.host, self.port))
+            self.server_socket.listen()
+        except OSError:
+            self.server_socket.close()
+            self.server_socket = None
+            raise
+
+        self.running = True
 
         thread = threading.Thread(target=self._listen, daemon=True)
         thread.start()

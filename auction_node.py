@@ -1,3 +1,4 @@
+import signal
 import sys
 import time
 
@@ -13,6 +14,18 @@ NODES = {
 }
 
 
+def install_shutdown_handlers():
+    """Transforma sinais do terminal em uma saída que executa o bloco finally."""
+
+    def request_shutdown(signum, frame):
+        raise KeyboardInterrupt
+
+    for signal_name in ("SIGTERM", "SIGHUP", "SIGTSTP"):
+        shutdown_signal = getattr(signal, signal_name, None)
+        if shutdown_signal is not None:
+            signal.signal(shutdown_signal, request_shutdown)
+
+
 def print_help():
     print("Comandos:")
     print("  bid <usuario> <valor>")
@@ -23,6 +36,8 @@ def print_help():
 
 
 def main():
+    install_shutdown_handlers()
+
     if len(sys.argv) != 2:
         print("Uso: python3 auction_node.py <node_id>")
         print(f"Nodes disponiveis: {sorted(NODES.keys())}")
